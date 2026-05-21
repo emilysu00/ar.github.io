@@ -1,11 +1,49 @@
 <html>
   <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@v7.0.0/dist/aframe-extras.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
     <script>
+      // iOS Safari 對影片材質比較嚴格：
+      // 1. 需要 playsinline / muted
+      // 2. 最穩定的格式是 mp4(H.264)，webm 只保留給 Android/Chrome fallback
+      // 3. 最好在第一次觸控後先 unlock 影片，避免 AR texture 黑畫面
+      AFRAME.registerComponent("ios-video-unlock", {
+        init: function () {
+          const videos = Array.from(document.querySelectorAll("video"));
+          const unlock = () => {
+            videos.forEach((video) => {
+              video.muted = true;
+              video.setAttribute("muted", "");
+              video.playsInline = true;
+              video.setAttribute("playsinline", "");
+              video.setAttribute("webkit-playsinline", "");
+
+              const playPromise = video.play();
+              if (playPromise && typeof playPromise.then === "function") {
+                playPromise
+                  .then(() => {
+                    video.pause();
+                  })
+                  .catch(() => {
+                    // iOS 可能仍會擋掉；後續 targetFound 時會再嘗試播放。
+                  });
+              } else {
+                video.pause();
+              }
+            });
+
+            window.removeEventListener("touchstart", unlock);
+            window.removeEventListener("click", unlock);
+          };
+
+          window.addEventListener("touchstart", unlock, { once: true, passive: true });
+          window.addEventListener("click", unlock, { once: true });
+        },
+      });
+
       AFRAME.registerComponent("persistent-video-target", {
         schema: {
           video: { type: "selector" },
@@ -22,6 +60,9 @@
 
           this.centerOverlay = document.querySelector("#centerVideoOverlay");
           this.centerVideo = document.querySelector("#centerVideo");
+
+          this.prepareVideo(videoElement);
+          videoElement.load();
 
           // 建立一個「不放在 target 裡」的影片平面
           this.videoPlane = document.createElement("a-video");
@@ -42,7 +83,7 @@
             this.videoPlane.object3D.visible = true;
 
             // 如果中央影片正在播，把秒數同步回原本的 videoElement
-            if (this.centerVideo && this.centerVideo.src) {
+            if (this.centerVideo && this.centerVideo.currentSrc) {
               try {
                 videoElement.currentTime = this.centerVideo.currentTime;
               } catch (err) {
@@ -58,6 +99,7 @@
               this.centerOverlay.classList.remove("is-active");
             }
 
+            this.prepareVideo(videoElement);
             videoElement
               .play()
               .catch((err) => console.log("AR 影片播放受阻:", err));
@@ -71,11 +113,13 @@
 
             if (!this.centerOverlay || !this.centerVideo) return;
 
-            this.centerVideo.src = videoElement.currentSrc || videoElement.src;
+            const activeSrc = videoElement.currentSrc || videoElement.src;
+            if (!activeSrc) return;
+
+            this.prepareVideo(this.centerVideo);
+            this.centerVideo.src = activeSrc;
             this.centerVideo.currentTime = videoElement.currentTime;
             this.centerVideo.loop = videoElement.loop;
-            this.centerVideo.muted = true;
-            this.centerVideo.playsInline = true;
 
             this.centerOverlay.classList.add("is-active");
 
@@ -87,6 +131,16 @@
           this.worldPosition = new THREE.Vector3();
           this.worldQuaternion = new THREE.Quaternion();
           this.worldScale = new THREE.Vector3();
+        },
+
+        prepareVideo: function (video) {
+          if (!video) return;
+          video.muted = true;
+          video.setAttribute("muted", "");
+          video.playsInline = true;
+          video.setAttribute("playsinline", "");
+          video.setAttribute("webkit-playsinline", "");
+          video.setAttribute("preload", "auto");
         },
 
         tick: function () {
@@ -103,6 +157,14 @@
       });
     </script>
     <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+
       #centerVideoOverlay {
         position: fixed;
         inset: 0;
@@ -117,7 +179,7 @@
       #centerVideoOverlay video {
         width: min(72vw, 420px);
         aspect-ratio: 9 / 16;
-        /* object-fit: contain; */
+        object-fit: contain;
       }
 
       #centerVideoOverlay.is-active {
@@ -139,38 +201,42 @@
       renderer="colorManagement: true, physicallyCorrectLights"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
+      ios-video-unlock
     >
       <a-assets>
         <video
           id="video0"
-          src="./assets/zhuoshui_river_ar_motion.webm"
           preload="auto"
           loop="true"
           muted
-          crossorigin="anonymous"
           webkit-playsinline
           playsinline
-        ></video>
+        >
+          <source src="./assets/zhuoshui_river_ar_motion.mp4" type="video/mp4" />
+          <source src="./assets/zhuoshui_river_ar_motion.webm" type="video/webm" />
+        </video>
         <video
           id="video1"
-          src="./assets/zengwen_river_ar_motion.webm"
           preload="auto"
           loop="true"
           muted
-          crossorigin="anonymous"
           webkit-playsinline
           playsinline
-        ></video>
+        >
+          <source src="./assets/zengwen_river_ar_motion.mp4" type="video/mp4" />
+          <source src="./assets/zengwen_river_ar_motion.webm" type="video/webm" />
+        </video>
         <video
           id="video2"
-          src="./assets/xiuguluan_river_ar_motion.webm"
           preload="auto"
           loop="true"
           muted
-          crossorigin="anonymous"
           webkit-playsinline
           playsinline
-        ></video>
+        >
+          <source src="./assets/xiuguluan_river_ar_motion.mp4" type="video/mp4" />
+          <source src="./assets/xiuguluan_river_ar_motion.webm" type="video/webm" />
+        </video>
       </a-assets>
 
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
@@ -182,8 +248,8 @@
       <a-entity
         mindar-image-target="targetIndex: 1"
         persistent-video-target="video: #video1; width: 1.38; height: 2.5"
-      ></a-entity
-      ><a-entity
+      ></a-entity>
+      <a-entity
         mindar-image-target="targetIndex: 2"
         persistent-video-target="video: #video2; width: 1.38; height: 2.5"
       ></a-entity>
