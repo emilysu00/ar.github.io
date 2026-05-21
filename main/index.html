@@ -11,7 +11,7 @@
     <script>
       // iOS Safari 對影片材質比較嚴格：
       // 1. 需要 playsinline / muted
-      // 2. 最穩定的格式是 mp4(H.264)，webm 只保留給 Android/Chrome fallback
+      // 2. webm 只保留給 Android/Chrome fallback
       // 3. 最好在第一次觸控後先 unlock 影片，避免 AR texture 黑畫面
       AFRAME.registerComponent("ios-video-unlock", {
         init: function () {
