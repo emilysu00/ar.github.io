@@ -1,104 +1,118 @@
+<!doctype html>
 <html>
   <head>
+    <meta charset="utf-8" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
+
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@v7.0.0/dist/aframe-extras.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
-    <script>
-      // iOS Safari 對透明影片放進 A-Frame / WebGL texture 很不穩定。
-      // 這版邏輯：
-      // 1. Android / Chrome：使用 WebM，維持原本 a-video / AR 平面顯示。
-      // 2. iOS 或不能播放 WebM 的瀏覽器：使用 MOV，並改用 HTML fixed overlay 顯示，避免 a-video 白底。
-      // 3. targetFound / targetLost 的觸發機制不變。
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+      }
 
-      window.TRANSPARENT_VIDEO_SOURCES = {
-        myVideo: {
+      a-scene {
+        width: 100vw;
+        height: 100vh;
+      }
+
+      /*
+        iOS / MOV 專用 overlay。
+        Android / Chrome 使用 WebM 時，AR 影片仍然走原本的 a-video。
+      */
+      #centerVideoOverlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: none;
+        justify-content: center;
+        align-items: center;
+        background: transparent !important;
+        pointer-events: none;
+      }
+
+      #centerVideoOverlay.is-active {
+        display: flex;
+      }
+
+      #centerVideoOverlay video {
+        width: min(72vw, 420px);
+        aspect-ratio: 9 / 16;
+        height: auto;
+        object-fit: contain;
+        background: transparent !important;
+        pointer-events: none;
+      }
+
+      body.is-video-playing .mindar-ui-scanning {
+        display: none !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+    </style>
+
+    <script>
+      /*
+        影片來源設定：
+        - Android / Chrome：使用 webm，保留原本 AR a-video。
+        - iOS / Safari：強制使用 mov + HTML overlay，避開 iOS WebGL texture 吃掉 alpha 的問題。
+      */
+      const TRANSPARENT_VIDEO_SOURCES = {
+        video0: {
           webm: "./assets/zhuoshui_river_ar_motion.webm",
           mov: "./assets/zhuoshui_river_ar_motion.mov",
         },
+        video1: {
+          webm: "./assets/zengwen_river_ar_motion.webm",
+          mov: "./assets/zengwen_river_ar_motion.mov",
+        },
+        video2: {
+          webm: "./assets/xiuguluan_river_ar_motion.webm",
+          mov: "./assets/xiuguluan_river_ar_motion.mov",
+        },
       };
 
-      function isIOSDevice() {
+      function isIOSLike() {
+        const ua = navigator.userAgent || "";
+        const platform = navigator.platform || "";
+
+        // iPadOS 13+ 有時會偽裝成 Mac，但 touch points > 1。
         return (
-          /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-          (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+          /iPad|iPhone|iPod/.test(ua) ||
+          (platform === "MacIntel" && navigator.maxTouchPoints > 1)
         );
       }
 
       function canPlayWebM() {
         const testVideo = document.createElement("video");
-        const vp9 = testVideo.canPlayType('video/webm; codecs="vp9"');
-        const vp8 = testVideo.canPlayType('video/webm; codecs="vp8"');
-
-        return vp9 !== "" || vp8 !== "";
+        return (
+          testVideo.canPlayType('video/webm; codecs="vp9"') !== "" ||
+          testVideo.canPlayType('video/webm; codecs="vp8"') !== "" ||
+          testVideo.canPlayType("video/webm") !== ""
+        );
       }
 
-      function shouldUseMovOverlay() {
-        // iOS 即使 canPlayType 回傳可播放，也常在透明 alpha 或 WebGL texture 階段失效，
-        // 所以 iOS 一律走 MOV + HTML overlay。
-        return isIOSDevice() || !canPlayWebM();
-      }
+      /*
+        iOS 即使回報可以播某些 WebM，也不代表 alpha + A-Frame texture 穩定。
+        所以 iPhone / iPad 一律走 MOV overlay。
+      */
+      const USE_MOV_OVERLAY = isIOSLike() || !canPlayWebM();
 
-      function getTransparentVideoSource(videoElement) {
-        if (!videoElement) return null;
-
-        const mapped = window.TRANSPARENT_VIDEO_SOURCES[videoElement.id];
-        if (mapped) return mapped;
-
-        const rawSrc =
-          videoElement.getAttribute("src") || videoElement.currentSrc || "";
-        if (!rawSrc) return null;
-
-        return {
-          webm: rawSrc.replace(/\.(mov|mp4|webm)(\?.*)?$/i, ".webm$2"),
-          mov: rawSrc.replace(/\.(mov|mp4|webm)(\?.*)?$/i, ".mov$2"),
-        };
-      }
-
-      function setupTransparentVideoSource(videoElement) {
-        const source = getTransparentVideoSource(videoElement);
-        if (!videoElement || !source) return;
-
-        videoElement.src = shouldUseMovOverlay() ? source.mov : source.webm;
-        videoElement.load();
-      }
-
-      function ensureMovOverlayVideo() {
-        let overlayVideo = document.querySelector("#iosMovOverlayVideo");
-        if (overlayVideo) return overlayVideo;
-
-        overlayVideo = document.createElement("video");
-        overlayVideo.id = "iosMovOverlayVideo";
-        overlayVideo.muted = true;
-        overlayVideo.playsInline = true;
-        overlayVideo.setAttribute("muted", "");
-        overlayVideo.setAttribute("playsinline", "");
-        overlayVideo.setAttribute("webkit-playsinline", "");
-        overlayVideo.setAttribute("preload", "auto");
-
-        overlayVideo.style.position = "fixed";
-        overlayVideo.style.left = "50%";
-        overlayVideo.style.top = "50%";
-        overlayVideo.style.width = "min(56vw, 420px)";
-        overlayVideo.style.height = "auto";
-        overlayVideo.style.transform = "translate(-50%, -50%)";
-        overlayVideo.style.zIndex = "9999";
-        overlayVideo.style.pointerEvents = "none";
-        overlayVideo.style.display = "none";
-        overlayVideo.style.background = "transparent";
-        overlayVideo.style.objectFit = "contain";
-
-        document.body.appendChild(overlayVideo);
-        return overlayVideo;
-      }
-
-      function prepareVideoElement(video) {
+      function prepareInlineMutedVideo(video) {
         if (!video) return;
         video.muted = true;
+        video.defaultMuted = true;
         video.setAttribute("muted", "");
         video.playsInline = true;
         video.setAttribute("playsinline", "");
@@ -106,17 +120,43 @@
         video.setAttribute("preload", "auto");
       }
 
+      function setVideoSource(video, src) {
+        if (!video || !src) return;
+
+        const current = video.currentSrc || video.src || "";
+        const absoluteSrc = new URL(src, window.location.href).href;
+
+        if (current !== absoluteSrc) {
+          video.pause();
+          video.removeAttribute("src");
+          video.load();
+          video.src = src;
+          video.load();
+        }
+      }
+
+      function getSourceForVideo(videoId) {
+        const source = TRANSPARENT_VIDEO_SOURCES[videoId];
+        if (!source) {
+          console.warn("找不到影片來源設定:", videoId);
+          return "";
+        }
+
+        return USE_MOV_OVERLAY ? source.mov : source.webm;
+      }
+
+      function getMovSourceForVideo(videoId) {
+        const source = TRANSPARENT_VIDEO_SOURCES[videoId];
+        return source ? source.mov : "";
+      }
+
       AFRAME.registerComponent("ios-video-unlock", {
         init: function () {
-          if (shouldUseMovOverlay()) {
-            ensureMovOverlayVideo();
-          }
-
           const unlock = () => {
             const videos = Array.from(document.querySelectorAll("video"));
 
             videos.forEach((video) => {
-              prepareVideoElement(video);
+              prepareInlineMutedVideo(video);
 
               const playPromise = video.play();
               if (playPromise && typeof playPromise.then === "function") {
@@ -125,7 +165,7 @@
                     video.pause();
                   })
                   .catch(() => {
-                    // iOS 可能仍會擋掉；後續 targetFound 時會再嘗試播放。
+                    // iOS 可能仍會擋掉；後續 targetFound / targetLost 時會再嘗試播放。
                   });
               } else {
                 video.pause();
@@ -157,44 +197,67 @@
           const videoElement = this.data.video;
 
           this.isTracking = false;
-          this.useMovOverlay = shouldUseMovOverlay();
+          this.videoPlane = null;
 
           this.centerOverlay = document.querySelector("#centerVideoOverlay");
           this.centerVideo = document.querySelector("#centerVideo");
-          this.movOverlayVideo = this.useMovOverlay
-            ? ensureMovOverlayVideo()
-            : null;
 
-          this.prepareVideo(videoElement);
-          setupTransparentVideoSource(videoElement);
+          if (!videoElement) {
+            console.warn("persistent-video-target 缺少 video selector");
+            return;
+          }
 
-          // 建立一個「不放在 target 裡」的影片平面。
-          // WebM 模式使用；MOV overlay 模式會保持隱藏，避免 iOS WebGL 透明影片出現白底。
-          this.videoPlane = document.createElement("a-video");
-          this.videoPlane.setAttribute("src", "#" + videoElement.id);
-          this.videoPlane.setAttribute("width", this.data.width);
-          this.videoPlane.setAttribute("height", this.data.height);
-          this.videoPlane.setAttribute("position", "0 0 0");
-          this.videoPlane.setAttribute("rotation", "0 0 0");
-          this.videoPlane.setAttribute(
-            "material",
-            "transparent: true; alphaTest: 0.01; side: double",
-          );
-          this.videoPlane.object3D.visible = false;
+          this.videoId = videoElement.id;
+          this.activeSrc = getSourceForVideo(this.videoId);
+          this.movSrc = getMovSourceForVideo(this.videoId);
 
-          sceneEl.appendChild(this.videoPlane);
+          prepareInlineMutedVideo(videoElement);
+          setVideoSource(videoElement, this.activeSrc);
+
+          /*
+            只有 WebM 模式才建立 AR 裡的 a-video。
+            MOV overlay 模式不建立 / 不顯示 a-video，避免 iOS WebGL alpha 變白底。
+          */
+          if (!USE_MOV_OVERLAY) {
+            this.videoPlane = document.createElement("a-video");
+            this.videoPlane.setAttribute("src", "#" + videoElement.id);
+            this.videoPlane.setAttribute("width", this.data.width);
+            this.videoPlane.setAttribute("height", this.data.height);
+            this.videoPlane.setAttribute("position", "0 0 0");
+            this.videoPlane.setAttribute("rotation", "0 0 0");
+            this.videoPlane.setAttribute(
+              "material",
+              "transparent: true; alphaTest: 0.01; side: double",
+            );
+            this.videoPlane.object3D.visible = false;
+
+            sceneEl.appendChild(this.videoPlane);
+          }
 
           targetEl.addEventListener("targetFound", () => {
-            console.log("找到目標，切回 AR 播放:", videoElement.id);
+            console.log(
+              "找到目標:",
+              this.videoId,
+              "MOV overlay:",
+              USE_MOV_OVERLAY,
+            );
             document.body.classList.add("is-video-playing");
 
-            // 如果中央影片正在播，把秒數同步回 AR / overlay 影片。
-            let resumeTime = 0;
-            if (this.centerVideo && this.centerVideo.currentSrc) {
-              resumeTime = this.centerVideo.currentTime || 0;
+            if (USE_MOV_OVERLAY) {
+              this.playCenterOverlayAsMov(videoElement);
+              return;
+            }
 
+            this.isTracking = true;
+
+            if (this.videoPlane) {
+              this.videoPlane.object3D.visible = true;
+            }
+
+            // 如果中央影片正在播，把秒數同步回原本的 videoElement。
+            if (this.centerVideo && this.centerVideo.currentSrc) {
               try {
-                videoElement.currentTime = resumeTime;
+                videoElement.currentTime = this.centerVideo.currentTime;
               } catch (err) {
                 console.log("同步中央影片秒數失敗:", err);
               }
@@ -208,69 +271,52 @@
               this.centerOverlay.classList.remove("is-active");
             }
 
-            if (this.useMovOverlay) {
-              const source = getTransparentVideoSource(videoElement);
-              this.isTracking = false;
-              this.videoPlane.object3D.visible = false;
+            prepareInlineMutedVideo(videoElement);
+            setVideoSource(videoElement, this.activeSrc);
 
-              this.prepareVideo(this.movOverlayVideo);
-              if (source && this.movOverlayVideo.src !== source.mov) {
-                this.movOverlayVideo.src = source.mov;
-                this.movOverlayVideo.load();
-              }
-
-              try {
-                this.movOverlayVideo.currentTime =
-                  resumeTime || videoElement.currentTime || 0;
-              } catch (err) {
-                console.log("同步 MOV overlay 秒數失敗:", err);
-              }
-
-              this.movOverlayVideo.style.display = "block";
-              this.movOverlayVideo
-                .play()
-                .catch((err) => console.log("MOV overlay 影片播放受阻:", err));
-
-              return;
-            }
-
-            this.isTracking = true;
-            this.videoPlane.object3D.visible = true;
-
-            this.prepareVideo(videoElement);
             videoElement
               .play()
-              .catch((err) => console.log("AR 影片播放受阻:", err));
+              .catch((err) => console.log("AR WebM 影片播放受阻:", err));
           });
 
           targetEl.addEventListener("targetLost", () => {
-            console.log("失去目標，切到中央播放:", videoElement.id);
+            console.log(
+              "失去目標:",
+              this.videoId,
+              "MOV overlay:",
+              USE_MOV_OVERLAY,
+            );
+
+            if (USE_MOV_OVERLAY) {
+              /*
+                原始邏輯是 targetLost 會切到中央播放。
+                iOS 本來就用中央 overlay，所以這裡保持 overlay 繼續播放。
+              */
+              this.playCenterOverlayAsMov(videoElement);
+              return;
+            }
 
             this.isTracking = false;
-            this.videoPlane.object3D.visible = false;
+
+            if (this.videoPlane) {
+              this.videoPlane.object3D.visible = false;
+            }
 
             if (!this.centerOverlay || !this.centerVideo) return;
 
-            let activeSrc = videoElement.currentSrc || videoElement.src;
-            let activeTime = videoElement.currentTime || 0;
-
-            if (this.useMovOverlay && this.movOverlayVideo) {
-              activeSrc =
-                this.movOverlayVideo.currentSrc ||
-                this.movOverlayVideo.src ||
-                activeSrc;
-              activeTime = this.movOverlayVideo.currentTime || activeTime;
-              this.movOverlayVideo.pause();
-              this.movOverlayVideo.style.display = "none";
-            }
-
+            const activeSrc = videoElement.currentSrc || videoElement.src;
             if (!activeSrc) return;
 
-            this.prepareVideo(this.centerVideo);
-            this.centerVideo.src = activeSrc;
-            this.centerVideo.currentTime = activeTime;
-            this.centerVideo.loop = videoElement.loop;
+            prepareInlineMutedVideo(this.centerVideo);
+            setVideoSource(this.centerVideo, activeSrc);
 
+            try {
+              this.centerVideo.currentTime = videoElement.currentTime;
+            } catch (err) {
+              console.log("同步 AR 影片秒數到中央影片失敗:", err);
+            }
+
+            this.centerVideo.loop = videoElement.loop;
             this.centerOverlay.classList.add("is-active");
 
             this.centerVideo
@@ -283,11 +329,45 @@
           this.worldScale = new THREE.Vector3();
         },
 
-        prepareVideo: function (video) {
-          prepareVideoElement(video);
+        playCenterOverlayAsMov: function (videoElement) {
+          if (!this.centerOverlay || !this.centerVideo) return;
+
+          prepareInlineMutedVideo(this.centerVideo);
+
+          const nextSrc = this.movSrc || this.activeSrc;
+          if (!nextSrc) return;
+
+          const previousSrc =
+            this.centerVideo.currentSrc || this.centerVideo.src || "";
+          const nextAbsoluteSrc = new URL(nextSrc, window.location.href).href;
+          const isSameVideo = previousSrc === nextAbsoluteSrc;
+
+          let syncTime = 0;
+
+          if (isSameVideo && !Number.isNaN(this.centerVideo.currentTime)) {
+            syncTime = this.centerVideo.currentTime;
+          } else if (videoElement && !Number.isNaN(videoElement.currentTime)) {
+            syncTime = videoElement.currentTime;
+          }
+
+          setVideoSource(this.centerVideo, nextSrc);
+          this.centerVideo.loop = true;
+
+          try {
+            this.centerVideo.currentTime = syncTime;
+          } catch (err) {
+            console.log("設定 MOV overlay 秒數失敗:", err);
+          }
+
+          this.centerOverlay.classList.add("is-active");
+
+          this.centerVideo
+            .play()
+            .catch((err) => console.log("MOV overlay 播放受阻:", err));
         },
 
         tick: function () {
+          if (USE_MOV_OVERLAY) return;
           if (!this.isTracking || !this.videoPlane) return;
 
           this.el.object3D.getWorldPosition(this.worldPosition);
@@ -299,62 +379,9 @@
           this.videoPlane.object3D.scale.copy(this.worldScale);
         },
       });
-
-      const video = document.getElementById("myVideo");
-      setupTransparentVideoSource(video);
     </script>
-
-    <style>
-      html,
-      body {
-        margin: 0;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-      }
-
-      #centerVideoOverlay {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        display: none;
-        justify-content: center;
-        align-items: center;
-        background: transparent;
-        pointer-events: none;
-      }
-
-      #centerVideoOverlay video {
-        width: min(72vw, 420px);
-        aspect-ratio: 9 / 16;
-        object-fit: contain;
-      }
-
-      #centerVideoOverlay.is-active {
-        display: flex;
-      }
-
-      body.is-video-playing .mindar-ui-scanning {
-        display: none !important;
-        opacity: 0 !important;
-        visibility: hidden !important;
-        pointer-events: none !important;
-      }
-      .ios-overlay-video {
-        position: fixed;
-        left: 50%;
-        top: 50%;
-        width: 46vw;
-        aspect-ratio: 9 / 16;
-        object-fit: contain;
-        transform: translate(-50%, -50%);
-        z-index: 9999;
-        pointer-events: none;
-        display: none;
-        background: transparent;
-      }
-    </style>
   </head>
+
   <body>
     <a-scene
       mindar-image="imageTargetSrc: ./assets/rivers.mind"
@@ -365,54 +392,33 @@
       ios-video-unlock
     >
       <a-assets>
+        <!-- 影片來源由 JS 指定，不在這裡放 source，避免 Safari / iOS 判斷錯誤格式 -->
         <video
           id="video0"
           preload="auto"
-          loop="true"
+          loop
           muted
           webkit-playsinline
           playsinline
-        >
-          <source
-            src="./assets/zhuoshui_river_ar_motion.mov"
-            type="video/mov"
-          />
-          <source
-            src="./assets/zhuoshui_river_ar_motion.webm"
-            type="video/webm"
-          />
-        </video>
+        ></video>
+
         <video
           id="video1"
           preload="auto"
-          loop="true"
+          loop
           muted
           webkit-playsinline
           playsinline
-        >
-          <source src="./assets/zengwen_river_ar_motion.mov" type="video/mov" />
-          <source
-            src="./assets/zengwen_river_ar_motion.webm"
-            type="video/webm"
-          />
-        </video>
+        ></video>
+
         <video
           id="video2"
           preload="auto"
-          loop="true"
+          loop
           muted
           webkit-playsinline
           playsinline
-        >
-          <source
-            src="./assets/xiuguluan_river_ar_motion.mov"
-            type="video/mov"
-          />
-          <source
-            src="./assets/xiuguluan_river_ar_motion.webm"
-            type="video/webm"
-          />
-        </video>
+        ></video>
       </a-assets>
 
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
@@ -421,24 +427,24 @@
         mindar-image-target="targetIndex: 0"
         persistent-video-target="video: #video0; width: 1.38; height: 2.5"
       ></a-entity>
+
       <a-entity
         mindar-image-target="targetIndex: 1"
         persistent-video-target="video: #video1; width: 1.38; height: 2.5"
       ></a-entity>
+
       <a-entity
         mindar-image-target="targetIndex: 2"
         persistent-video-target="video: #video2; width: 1.38; height: 2.5"
       ></a-entity>
     </a-scene>
 
-    <!-- iOS / MOV 專用 overlay，預設隱藏 -->
-    <video
-      id="iosOverlayVideo"
-      class="ios-overlay-video"
-      muted
-      playsinline
-      webkit-playsinline
-      preload="auto"
-    ></video>
+    <!--
+      原本中央播放用的 overlay。
+      在 iOS / MOV 模式下，它同時作為透明 MOV 的顯示層。
+    -->
+    <div id="centerVideoOverlay">
+      <video id="centerVideo" muted loop playsinline webkit-playsinline></video>
+    </div>
   </body>
 </html>
