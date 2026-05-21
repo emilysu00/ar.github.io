@@ -36,6 +36,7 @@
 
           targetEl.addEventListener("targetFound", () => {
             console.log("找到目標，切回 AR 播放:", videoElement.id);
+            document.body.classList.add("is-video-playing");
 
             this.isTracking = true;
             this.videoPlane.object3D.visible = true;
@@ -122,11 +123,18 @@
       #centerVideoOverlay.is-active {
         display: flex;
       }
+
+      body.is-video-playing .mindar-ui-scanning {
+        display: none !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
     </style>
   </head>
   <body>
     <a-scene
-      mindar-image="imageTargetSrc: ./assets/rivers.mind; uiScanning: no;"
+      mindar-image="imageTargetSrc: ./assets/rivers.mind"
       color-space="sRGB"
       renderer="colorManagement: true, physicallyCorrectLights"
       vr-mode-ui="enabled: false"
