@@ -1,6 +1,9 @@
 <html>
   <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@v7.0.0/dist/aframe-extras.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
@@ -39,7 +42,10 @@
             window.removeEventListener("click", unlock);
           };
 
-          window.addEventListener("touchstart", unlock, { once: true, passive: true });
+          window.addEventListener("touchstart", unlock, {
+            once: true,
+            passive: true,
+          });
           window.addEventListener("click", unlock, { once: true });
         },
       });
@@ -212,8 +218,14 @@
           webkit-playsinline
           playsinline
         >
-          <source src="./assets/zhuoshui_river_ar_motion.mp4" type="video/mp4" />
-          <source src="./assets/zhuoshui_river_ar_motion.webm" type="video/webm" />
+          <source
+            src="./assets/zhuoshui_river_ar_motion.mov"
+            type="video/mov"
+          />
+          <source
+            src="./assets/zhuoshui_river_ar_motion.webm"
+            type="video/webm"
+          />
         </video>
         <video
           id="video1"
@@ -223,8 +235,11 @@
           webkit-playsinline
           playsinline
         >
-          <source src="./assets/zengwen_river_ar_motion.mp4" type="video/mp4" />
-          <source src="./assets/zengwen_river_ar_motion.webm" type="video/webm" />
+          <source src="./assets/zengwen_river_ar_motion.mov" type="video/mov" />
+          <source
+            src="./assets/zengwen_river_ar_motion.webm"
+            type="video/webm"
+          />
         </video>
         <video
           id="video2"
@@ -234,8 +249,14 @@
           webkit-playsinline
           playsinline
         >
-          <source src="./assets/xiuguluan_river_ar_motion.mp4" type="video/mp4" />
-          <source src="./assets/xiuguluan_river_ar_motion.webm" type="video/webm" />
+          <source
+            src="./assets/xiuguluan_river_ar_motion.mov"
+            type="video/mov"
+          />
+          <source
+            src="./assets/xiuguluan_river_ar_motion.webm"
+            type="video/webm"
+          />
         </video>
       </a-assets>
 
