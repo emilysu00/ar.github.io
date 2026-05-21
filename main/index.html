@@ -9,20 +9,114 @@
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
     <script>
-      // iOS Safari 對影片材質比較嚴格：
-      // 1. 需要 playsinline / muted
-      // 2. 最穩定的格式是 mp4(H.264)，webm 只保留給 Android/Chrome fallback
-      // 3. 最好在第一次觸控後先 unlock 影片，避免 AR texture 黑畫面
+      // iOS Safari 對透明影片放進 A-Frame / WebGL texture 很不穩定。
+      // 這版邏輯：
+      // 1. Android / Chrome：使用 WebM，維持原本 a-video / AR 平面顯示。
+      // 2. iOS 或不能播放 WebM 的瀏覽器：使用 MOV，並改用 HTML fixed overlay 顯示，避免 a-video 白底。
+      // 3. targetFound / targetLost 的觸發機制不變。
+
+      window.TRANSPARENT_VIDEO_SOURCES = {
+        myVideo: {
+          webm: "./assets/zhuoshui_river_ar_motion.webm",
+          mov: "./assets/zhuoshui_river_ar_motion.mov",
+        },
+      };
+
+      function isIOSDevice() {
+        return (
+          /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+          (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+        );
+      }
+
+      function canPlayWebM() {
+        const testVideo = document.createElement("video");
+        const vp9 = testVideo.canPlayType('video/webm; codecs="vp9"');
+        const vp8 = testVideo.canPlayType('video/webm; codecs="vp8"');
+
+        return vp9 !== "" || vp8 !== "";
+      }
+
+      function shouldUseMovOverlay() {
+        // iOS 即使 canPlayType 回傳可播放，也常在透明 alpha 或 WebGL texture 階段失效，
+        // 所以 iOS 一律走 MOV + HTML overlay。
+        return isIOSDevice() || !canPlayWebM();
+      }
+
+      function getTransparentVideoSource(videoElement) {
+        if (!videoElement) return null;
+
+        const mapped = window.TRANSPARENT_VIDEO_SOURCES[videoElement.id];
+        if (mapped) return mapped;
+
+        const rawSrc =
+          videoElement.getAttribute("src") || videoElement.currentSrc || "";
+        if (!rawSrc) return null;
+
+        return {
+          webm: rawSrc.replace(/\.(mov|mp4|webm)(\?.*)?$/i, ".webm$2"),
+          mov: rawSrc.replace(/\.(mov|mp4|webm)(\?.*)?$/i, ".mov$2"),
+        };
+      }
+
+      function setupTransparentVideoSource(videoElement) {
+        const source = getTransparentVideoSource(videoElement);
+        if (!videoElement || !source) return;
+
+        videoElement.src = shouldUseMovOverlay() ? source.mov : source.webm;
+        videoElement.load();
+      }
+
+      function ensureMovOverlayVideo() {
+        let overlayVideo = document.querySelector("#iosMovOverlayVideo");
+        if (overlayVideo) return overlayVideo;
+
+        overlayVideo = document.createElement("video");
+        overlayVideo.id = "iosMovOverlayVideo";
+        overlayVideo.muted = true;
+        overlayVideo.playsInline = true;
+        overlayVideo.setAttribute("muted", "");
+        overlayVideo.setAttribute("playsinline", "");
+        overlayVideo.setAttribute("webkit-playsinline", "");
+        overlayVideo.setAttribute("preload", "auto");
+
+        overlayVideo.style.position = "fixed";
+        overlayVideo.style.left = "50%";
+        overlayVideo.style.top = "50%";
+        overlayVideo.style.width = "min(56vw, 420px)";
+        overlayVideo.style.height = "auto";
+        overlayVideo.style.transform = "translate(-50%, -50%)";
+        overlayVideo.style.zIndex = "9999";
+        overlayVideo.style.pointerEvents = "none";
+        overlayVideo.style.display = "none";
+        overlayVideo.style.background = "transparent";
+        overlayVideo.style.objectFit = "contain";
+
+        document.body.appendChild(overlayVideo);
+        return overlayVideo;
+      }
+
+      function prepareVideoElement(video) {
+        if (!video) return;
+        video.muted = true;
+        video.setAttribute("muted", "");
+        video.playsInline = true;
+        video.setAttribute("playsinline", "");
+        video.setAttribute("webkit-playsinline", "");
+        video.setAttribute("preload", "auto");
+      }
+
       AFRAME.registerComponent("ios-video-unlock", {
         init: function () {
-          const videos = Array.from(document.querySelectorAll("video"));
+          if (shouldUseMovOverlay()) {
+            ensureMovOverlayVideo();
+          }
+
           const unlock = () => {
+            const videos = Array.from(document.querySelectorAll("video"));
+
             videos.forEach((video) => {
-              video.muted = true;
-              video.setAttribute("muted", "");
-              video.playsInline = true;
-              video.setAttribute("playsinline", "");
-              video.setAttribute("webkit-playsinline", "");
+              prepareVideoElement(video);
 
               const playPromise = video.play();
               if (playPromise && typeof playPromise.then === "function") {
@@ -63,20 +157,29 @@
           const videoElement = this.data.video;
 
           this.isTracking = false;
+          this.useMovOverlay = shouldUseMovOverlay();
 
           this.centerOverlay = document.querySelector("#centerVideoOverlay");
           this.centerVideo = document.querySelector("#centerVideo");
+          this.movOverlayVideo = this.useMovOverlay
+            ? ensureMovOverlayVideo()
+            : null;
 
           this.prepareVideo(videoElement);
-          videoElement.load();
+          setupTransparentVideoSource(videoElement);
 
-          // 建立一個「不放在 target 裡」的影片平面
+          // 建立一個「不放在 target 裡」的影片平面。
+          // WebM 模式使用；MOV overlay 模式會保持隱藏，避免 iOS WebGL 透明影片出現白底。
           this.videoPlane = document.createElement("a-video");
           this.videoPlane.setAttribute("src", "#" + videoElement.id);
           this.videoPlane.setAttribute("width", this.data.width);
           this.videoPlane.setAttribute("height", this.data.height);
           this.videoPlane.setAttribute("position", "0 0 0");
           this.videoPlane.setAttribute("rotation", "0 0 0");
+          this.videoPlane.setAttribute(
+            "material",
+            "transparent: true; alphaTest: 0.01; side: double",
+          );
           this.videoPlane.object3D.visible = false;
 
           sceneEl.appendChild(this.videoPlane);
@@ -85,13 +188,13 @@
             console.log("找到目標，切回 AR 播放:", videoElement.id);
             document.body.classList.add("is-video-playing");
 
-            this.isTracking = true;
-            this.videoPlane.object3D.visible = true;
-
-            // 如果中央影片正在播，把秒數同步回原本的 videoElement
+            // 如果中央影片正在播，把秒數同步回 AR / overlay 影片。
+            let resumeTime = 0;
             if (this.centerVideo && this.centerVideo.currentSrc) {
+              resumeTime = this.centerVideo.currentTime || 0;
+
               try {
-                videoElement.currentTime = this.centerVideo.currentTime;
+                videoElement.currentTime = resumeTime;
               } catch (err) {
                 console.log("同步中央影片秒數失敗:", err);
               }
@@ -104,6 +207,35 @@
             if (this.centerOverlay) {
               this.centerOverlay.classList.remove("is-active");
             }
+
+            if (this.useMovOverlay) {
+              const source = getTransparentVideoSource(videoElement);
+              this.isTracking = false;
+              this.videoPlane.object3D.visible = false;
+
+              this.prepareVideo(this.movOverlayVideo);
+              if (source && this.movOverlayVideo.src !== source.mov) {
+                this.movOverlayVideo.src = source.mov;
+                this.movOverlayVideo.load();
+              }
+
+              try {
+                this.movOverlayVideo.currentTime =
+                  resumeTime || videoElement.currentTime || 0;
+              } catch (err) {
+                console.log("同步 MOV overlay 秒數失敗:", err);
+              }
+
+              this.movOverlayVideo.style.display = "block";
+              this.movOverlayVideo
+                .play()
+                .catch((err) => console.log("MOV overlay 影片播放受阻:", err));
+
+              return;
+            }
+
+            this.isTracking = true;
+            this.videoPlane.object3D.visible = true;
 
             this.prepareVideo(videoElement);
             videoElement
@@ -119,12 +251,24 @@
 
             if (!this.centerOverlay || !this.centerVideo) return;
 
-            const activeSrc = videoElement.currentSrc || videoElement.src;
+            let activeSrc = videoElement.currentSrc || videoElement.src;
+            let activeTime = videoElement.currentTime || 0;
+
+            if (this.useMovOverlay && this.movOverlayVideo) {
+              activeSrc =
+                this.movOverlayVideo.currentSrc ||
+                this.movOverlayVideo.src ||
+                activeSrc;
+              activeTime = this.movOverlayVideo.currentTime || activeTime;
+              this.movOverlayVideo.pause();
+              this.movOverlayVideo.style.display = "none";
+            }
+
             if (!activeSrc) return;
 
             this.prepareVideo(this.centerVideo);
             this.centerVideo.src = activeSrc;
-            this.centerVideo.currentTime = videoElement.currentTime;
+            this.centerVideo.currentTime = activeTime;
             this.centerVideo.loop = videoElement.loop;
 
             this.centerOverlay.classList.add("is-active");
@@ -140,13 +284,7 @@
         },
 
         prepareVideo: function (video) {
-          if (!video) return;
-          video.muted = true;
-          video.setAttribute("muted", "");
-          video.playsInline = true;
-          video.setAttribute("playsinline", "");
-          video.setAttribute("webkit-playsinline", "");
-          video.setAttribute("preload", "auto");
+          prepareVideoElement(video);
         },
 
         tick: function () {
@@ -161,28 +299,11 @@
           this.videoPlane.object3D.scale.copy(this.worldScale);
         },
       });
+
       const video = document.getElementById("myVideo");
-
-      const webmSrc = "./assets/zhuoshui_river_ar_motion.webm";
-      const movSrc = "./assets/zhuoshui_river_ar_motion.mov";
-
-      function canPlayWebM() {
-        const testVideo = document.createElement("video");
-
-        return (
-          testVideo.canPlayType('video/webm; codecs="vp9"') !== "" ||
-          testVideo.canPlayType('video/webm; codecs="vp8"') !== ""
-        );
-      }
-
-      if (canPlayWebM()) {
-        video.src = webmSrc;
-      } else {
-        video.src = movSrc;
-      }
-
-      video.load();
+      setupTransparentVideoSource(video);
     </script>
+
     <style>
       html,
       body {
@@ -218,6 +339,19 @@
         opacity: 0 !important;
         visibility: hidden !important;
         pointer-events: none !important;
+      }
+      .ios-overlay-video {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        width: 46vw;
+        aspect-ratio: 9 / 16;
+        object-fit: contain;
+        transform: translate(-50%, -50%);
+        z-index: 9999;
+        pointer-events: none;
+        display: none;
+        background: transparent;
       }
     </style>
   </head>
@@ -297,8 +431,14 @@
       ></a-entity>
     </a-scene>
 
-    <div id="centerVideoOverlay">
-      <video id="centerVideo" muted loop playsinline webkit-playsinline></video>
-    </div>
+    <!-- iOS / MOV 專用 overlay，預設隱藏 -->
+    <video
+      id="iosOverlayVideo"
+      class="ios-overlay-video"
+      muted
+      playsinline
+      webkit-playsinline
+      preload="auto"
+    ></video>
   </body>
 </html>
