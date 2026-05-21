@@ -161,6 +161,27 @@
           this.videoPlane.object3D.scale.copy(this.worldScale);
         },
       });
+      const video = document.getElementById("myVideo");
+
+      const webmSrc = "./assets/zhuoshui_river_ar_motion.webm";
+      const movSrc = "./assets/zhuoshui_river_ar_motion.mov";
+
+      function canPlayWebM() {
+        const testVideo = document.createElement("video");
+
+        return (
+          testVideo.canPlayType('video/webm; codecs="vp9"') !== "" ||
+          testVideo.canPlayType('video/webm; codecs="vp8"') !== ""
+        );
+      }
+
+      if (canPlayWebM()) {
+        video.src = webmSrc;
+      } else {
+        video.src = movSrc;
+      }
+
+      video.load();
     </script>
     <style>
       html,
